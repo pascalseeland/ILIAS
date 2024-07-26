@@ -8991,6 +8991,7 @@ ecs#:#ecs_duration#:#Duration
 ecs#:#ecs_econ_rcp#:#Notification About New E-Content
 ecs#:#ecs_econ_rcp_info#:#Enter one or more login names of users (comma separated) that will be informed about new ECS content per e-mail.
 ecs#:#ecs_edit_category_mapping#:#Edit Assignment
+ecs#:#ecs_edit_import_type#:#Switch import type
 ecs#:#ecs_email#:#E-Mail
 ecs#:#ecs_enable_participant#:#Allow Im/Export
 ecs#:#ecs_err_invalid_by_type#:#Please select a type when assigning by type.
@@ -9053,6 +9054,8 @@ ecs#:#ecs_import_auth_type_default#:#Allow accounts authentication method "Defau
 ecs#:#ecs_import_cms#:#Campus Management
 ecs#:#ecs_import_id#:#Import ID
 ecs#:#ecs_import_id_info#:#Please enter the ID of the category, where new Course Links will be created
+ecs#:#ecs_import_setting#:#Import Settings for Participant
+ecs#:#ecs_import_type#:#Import Type
 ecs#:#ecs_import_types#:#Importable Object Types
 ecs#:#ecs_import_user_credentials_by_auth_mode#:#Configuration of authentication methods for transmission via ECS
 ecs#:#ecs_import_user_credentials_by_auth_mode_info#:#Enable this option to allow accounts of authentication method "Default" to access participant's resources via ECS.

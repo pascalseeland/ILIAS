@@ -37,7 +37,7 @@ class ilECSParticipantSettingsGUI
     protected ilToolbarGUI $toolbar;
     protected ilSetting $settings;
 
-    public function __construct(int $a_server_id, int $a_mid)
+    public function __construct(int $server_id, int $a_mid)
     {
         global $DIC;
 
@@ -49,7 +49,7 @@ class ilECSParticipantSettingsGUI
         $this->toolbar = $DIC->toolbar();
         $this->settings = $DIC->settings();
 
-        $this->server_id = $a_server_id;
+        $this->server_id = $server_id;
         $this->mid = $a_mid;
 
         $this->lng->loadLanguageModule('ecs');
@@ -82,8 +82,10 @@ class ilECSParticipantSettingsGUI
         $this->ctrl->saveParameter($this, 'mid');
 
         $next_class = $this->ctrl->getNextClass($this);
-        $cmd = $this->ctrl->getCmd('settings');
-
+        $cmd = $this->ctrl->getCmd();
+        if (!$cmd) {
+            $cmd = "settings";
+        }
         $this->setTabs();
         $this->$cmd();
 
@@ -108,6 +110,17 @@ class ilECSParticipantSettingsGUI
 
         if (!$form instanceof ilPropertyFormGUI) {
             $form = $this->initFormSettings();
+        }
+        $this->tpl->setContent($form->getHTML());
+    }
+
+    /**
+     * Settings
+     */
+    private function importtype(ilPropertyFormGUI $form = null): void
+    {
+        if (!$form instanceof ilPropertyFormGUI) {
+            $form = $this->initFormImportType();
         }
         $this->tpl->setContent($form->getHTML());
     }
@@ -147,7 +160,7 @@ class ilECSParticipantSettingsGUI
     /**
      * Save settings
      */
-    protected function saveSettings(): void
+    private function saveSettings(): void
     {
         $form = $this->initFormSettings();
         if ($form->checkInput()) {
@@ -191,7 +204,7 @@ class ilECSParticipantSettingsGUI
     /**
      * Init settings form
      */
-    protected function initFormSettings(): ilPropertyFormGUI
+    private function initFormSettings(): ilPropertyFormGUI
     {
         $form = new ilPropertyFormGUI();
         $form->setFormAction($this->ctrl->getFormAction($this));
@@ -332,6 +345,65 @@ class ilECSParticipantSettingsGUI
         return (bool) $this->settings->get('shib_active', '0');
     }
 
+    private function initFormImportType(): ilPropertyFormGUI
+    {
+        $form = new ilPropertyFormGUI();
+        $form->setFormAction($this->ctrl->getFormAction($this));
+        $form->setTitle($this->lng->txt('ecs_import_setting') . ' ' . $this->getParticipant()->getTitle());
+        $sel = new ilSelectInputGUI($this->lng->txt('ecs_import_type'), 'import_type');
+        $sel->setOptions(
+            array(
+                ilECSParticipantSetting::IMPORT_RCRS => $this->lng->txt('obj_rcrs'),
+                ilECSParticipantSetting::IMPORT_CRS => $this->lng->txt('obj_crs'),
+                ilECSParticipantSetting::IMPORT_CMS => $this->lng->txt('ecs_import_cms')
+            ),
+        );
+        $sel->setValue((string) $this->participant->getImportType());
+        $form->addItem($sel);
+        $form->addCommandButton('saveImportype', $this->lng->txt('save'));
+        $form->addCommandButton('abort', $this->lng->txt('cancel'));
+        return $form;
+    }
+
+    /**
+     * Save settings
+     */
+    private function saveImportype(): void
+    {
+        $form = $this->initFormImportType();
+        if ($form->checkInput()) {
+            $import_type = (int) $form->getInput('import_type');
+            $can_save = true;
+            if (ilECSParticipantSetting::IMPORT_CMS === $import_type) {
+                foreach (ilECSServerSettings::getInstance()->getServers(ilECSServerSettings::ACTIVE_SERVER) as $server) {
+                    // lookupCmsMid will return 0 in case there is no cms,
+                    $mid = ilECSParticipantSettings::getInstanceByServerId($server->getServerId())->lookupCmsMid();
+                    if ($mid && !($mid === $this->mid && $server->getServerId() === $this->server_id)) {
+                        $can_save = false;
+                    }
+                }
+            }
+
+            if ($can_save) {
+                $this->participant->setImportType($import_type);
+                $this->participant->update();
+                $this->tpl->setOnScreenMessage('success', $this->lng->txt('import_type_saved'), true);
+                $this->ctrl->redirect($this, 'importtype');
+            }
+            $this->tpl->setOnScreenMessage('failure', $this->lng->txt('ecs_invalid_import_type_cms'), true);
+        }
+        $form->setValuesByPost();
+        $this->tpl->setOnScreenMessage('failure', $this->lng->txt('err_check_input'));
+        $this->importtype($form);
+    }
+
+    /**
+     * Validate import types
+     */
+    protected function validateImportType(int $new_import_type): bool
+    {
+
+    }
     /**
      * Set tabs
      */

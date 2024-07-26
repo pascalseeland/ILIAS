@@ -42,7 +42,7 @@ class ilECSExportedContentTableGUI extends ilTable2GUI
     /**
      * Fill row
      *
-     * @param array row data
+     * @param array $a_set row data
      *
      */
     protected function fillRow(array $a_set): void
@@ -110,7 +110,7 @@ class ilECSExportedContentTableGUI extends ilTable2GUI
     /**
      * Parse
      *
-     * @param array array of released content obj_ids
+     * @param array $a_obj_ids array of released content obj_ids
      *
      */
     public function parse($a_obj_ids): void

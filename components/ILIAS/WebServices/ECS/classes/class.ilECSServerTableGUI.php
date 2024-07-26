@@ -19,127 +19,99 @@ declare(strict_types=1);
 
 /**
  * @author Stefan Meyer <meyer@leifos.com>
+ * @author Per Pascal Seeland <pascal.seeland@tik.uni-stuttgart.de>
  */
-class ilECSServerTableGUI extends ilTable2GUI
+class ilECSServerTableGUI
 {
-    private ilAccessHandler $access;
-
     private \ILIAS\UI\Factory $ui_factory;
     private \ILIAS\UI\Renderer $ui_renderer;
+    private ilCtrlInterface $ctrl;
+    private ilECSSettingsGUI $parent;
+    private ilLanguage $lng;
+    private array $ecs_list_items = [];
+    private bool $with_actions;
 
-    public function __construct(object $a_parent_obj, string $a_parent_cmd = "")
+    public function __construct(ilECSSettingsGUI $parent, ilECSServerSettings $servers, bool $with_actions = false)
     {
         global $DIC;
-
-        parent::__construct($a_parent_obj, $a_parent_cmd);
-        $this->setId('ecs_server_list');
-
-        $this->access = $DIC->access();
         $this->ui_factory = $DIC->ui()->factory();
         $this->ui_renderer = $DIC->ui()->renderer();
+        $this->lng = $DIC->language();
+        $this->ctrl = $DIC->ctrl();
+        $this->parent = $parent;
+        foreach ($servers->getServers(ilECSServerSettings::ALL_SERVER) as $server) {
+            $this->ecs_list_items[] = $this->createItem($server);
+        }
+
     }
 
     /**
      * Init Table
      */
-    public function initTable(): void
+    public function renderList(): string
     {
-        $this->setTitle($this->lng->txt('ecs_available_ecs'));
-        $this->setRowTemplate('tpl.ecs_server_row.html', 'components/ILIAS/WebServices/ECS');
+        $ecs_list_panel = $this->ui_factory->panel()->listing()->standard(
+            $this->lng->txt('ecs_available_ecs'),
+            [$this->ui_factory->item()->group('', $this->ecs_list_items)]
+        );
 
-        $this->addColumn($this->lng->txt('ecs_tbl_active'), '', '1%');
-        $this->addColumn($this->lng->txt('title'), '', '80%');
 
-        if ($this->access->checkAccess('write', '', (int) $_REQUEST["ref_id"])) {
-            $this->addColumn($this->lng->txt('actions'), '', '19%');
-        }
+        return $this->ui_renderer->render($ecs_list_panel);
     }
 
-    /**
-     * Fill row
- * @param array $a_set
-     */
-    protected function fillRow(array $a_set): void
+    private function createItem(ilECSSetting $ecs_server): \ILIAS\UI\Component\Item\Standard
     {
-        $this->ctrl->setParameter($this->getParentObject(), 'server_id', $a_set['server_id']);
-        $this->ctrl->setParameterByClass('ilecsmappingsettingsgui', 'server_id', $a_set['server_id']);
 
-        if ($a_set['active']) {
-            $this->tpl->setVariable('IMAGE_OK', ilUtil::getImagePath('standard/icon_ok.svg'));
-            $this->tpl->setVariable('TXT_OK', $this->lng->txt('ecs_activated'));
+        $this->ctrl->setParameter($this->parent, 'server_id', $ecs_server->getServerId());
+        $this->ctrl->setParameterByClass(ilECSSettingsGUI::class, 'server_id', $ecs_server->getServerId());
+        // Actions
+        $items = [];
+
+        if ($ecs_server->isEnabled()) {
+            $items[] = [$this->lng->txt('ecs_deactivate'), $this->ctrl->getLinkTarget($this->parent, 'deactivate')];
         } else {
-            $this->tpl->setVariable('IMAGE_OK', ilUtil::getImagePath('standard/icon_not_ok.svg'));
-            $this->tpl->setVariable('TXT_OK', $this->lng->txt('ecs_inactivated'));
+            $items[] = [$this->lng->txt('ecs_activate'), $this->ctrl->getLinkTarget($this->parent, 'activate')];
         }
 
+        $items[] = [$this->lng->txt('edit'), $this->ctrl->getLinkTarget($this->parent, 'edit')];
+        $items[] = [$this->lng->txt('copy'), $this->ctrl->getLinkTarget($this->parent, 'cp')];
+        $items[] = [$this->lng->txt('delete'), $this->ctrl->getLinkTarget($this->parent, 'delete')];
 
-        $this->tpl->setVariable('VAL_TITLE', ilECSSetting::getInstanceByServerId($a_set['server_id'])->getTitle());
-        $this->tpl->setVariable('LINK_EDIT', $this->ctrl->getLinkTarget($this->getParentObject(), 'edit'));
-        $this->tpl->setVariable('TXT_SRV_ADDR', $this->lng->txt('ecs_server_addr'));
+        $render_items = [];
+        foreach ($items as $item) {
+            $render_items[] = $this->ui_factory->button()->shy(...$item);
+        }
+        $actions = $this->ui_factory->dropdown()->standard($render_items)->withLabel($this->lng->txt('actions'));
 
-        if (ilECSSetting::getInstanceByServerId($a_set['server_id'])->getServer()) {
-            $this->tpl->setVariable('VAL_DESC', ilECSSetting::getInstanceByServerId($a_set['server_id'])->getServer());
+        $icon_base_path = './templates/default/images/standard/icon_%s.svg';
+
+        if ($ecs_server->isEnabled()) {
+            $lead_icon = $this->ui_factory->symbol()->icon()->custom(sprintf($icon_base_path, 'ok'), $this->lng->txt('ecs_activated'));
         } else {
-            $this->tpl->setVariable('VAL_DESC', $this->lng->txt('ecs_not_configured'));
+            $lead_icon = $this->ui_factory->symbol()->icon()->custom(sprintf($icon_base_path, 'not_ok'), $this->lng->txt('ecs_inactivated'));
         }
 
-        $dt = ilECSSetting::getInstanceByServerId($a_set['server_id'])->fetchCertificateExpiration();
+        $properties = [];
+        $properties[$this->lng->txt('ecs_server_addr')] =
+            $ecs_server->getServer() ?: $this->lng->txt('ecs_not_configured');
+
+        $dt = $ecs_server->fetchCertificateExpiration();
         if ($dt !== null) {
-            $this->tpl->setVariable('TXT_CERT_VALID', $this->lng->txt('ecs_cert_valid_until'));
-
             $now = new ilDateTime(time(), IL_CAL_UNIX);
             $now->increment(IL_CAL_MONTH, 2);
-
-            if (ilDateTime::_before($dt, $now)) {
-                $this->tpl->setCurrentBlock('invalid');
-                $this->tpl->setVariable('VAL_ICERT', ilDatePresentation::formatDate($dt));
-            } else {
-                $this->tpl->setCurrentBlock('valid');
-                $this->tpl->setVariable('VAL_VCERT', ilDatePresentation::formatDate($dt));
-            }
-            $this->tpl->parseCurrentBlock();
+            $properties[$this->lng->txt('ecs_cert_valid_until')] =
+                ilDateTime::_before($dt, $now) ?
+                '<font class="smallred">'.ilDatePresentation::formatDate($dt).'</font>' :
+                    ilDatePresentation::formatDate($dt);
         }
 
-        if ($this->access->checkAccess('write', '', (int) $_REQUEST["ref_id"])) {
-            // Actions
-            $items = [];
-
-            if (ilECSSetting::getInstanceByServerId($a_set['server_id'])->isEnabled()) {
-                $items[] = [$this->lng->txt('ecs_deactivate'), $this->ctrl->getLinkTarget($this->getParentObject(), 'deactivate')];
-            } else {
-                $items[] = [$this->lng->txt('ecs_activate'), $this->ctrl->getLinkTarget($this->getParentObject(), 'activate')];
-            }
-
-            $items[] = [$this->lng->txt('edit'), $this->ctrl->getLinkTarget($this->getParentObject(), 'edit')];
-            $items[] = [$this->lng->txt('copy'), $this->ctrl->getLinkTarget($this->getParentObject(), 'cp')];
-            $items[] = [$this->lng->txt('delete'), $this->ctrl->getLinkTarget($this->getParentObject(), 'delete')];
-
-            $this->tpl->setCurrentBlock("actions");
-            $render_items = [];
-            foreach ($items as $item) {
-                $render_items[] = $this->ui_factory->button()->shy(...$item);
-            }
-            $this->tpl->setVariable(
-                'ACTIONS',
-                $this->ui_renderer->render($this->ui_factory->dropdown()->standard($render_items)->withLabel($this->lng->txt('actions')))
-            );
-            $this->tpl->parseCurrentBlock();
-        }
-        $this->ctrl->clearParameters($this->getParentObject());
-    }
-
-    /**
-     * Parse available servers
-     */
-    public function parse(ilECSServerSettings $servers): void
-    {
-        $rows = [];
-        foreach ($servers->getServers(ilECSServerSettings::ALL_SERVER) as $server) {
-            $tmp['server_id'] = $server->getServerId();
-            $tmp['active'] = $server->isEnabled();
-
-            $rows[] = $tmp;
-        }
-        $this->setData($rows);
+        $html_content =  $this->ui_factory->item()->standard(
+            $this->ui_factory->link()->standard(
+                $ecs_server->getTitle(),
+                $this->ctrl->getLinkTarget($this->parent, 'edit')
+            )
+        )->withActions($actions)->withProperties($properties)->withLeadIcon($lead_icon);
+        $this->ctrl->clearParameters($this->parent);
+        return $html_content;
     }
 }

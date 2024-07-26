@@ -45,6 +45,11 @@ class ilECSSettingsGUI
 
     private ?ilPropertyFormGUI $form = null;
     private ilECSCategoryMappingRule $rule;
+    private \ILIAS\UI\Factory $ui_factory;
+
+    private int $ref_id;
+    private \ILIAS\UI\Renderer $ui_renderer;
+    private \ILIAS\Refinery\Factory $refinery;
 
     public function __construct()
     {
@@ -62,6 +67,11 @@ class ilECSSettingsGUI
         $this->objDataCache = $DIC['ilObjDataCache'];
         $this->user = $DIC->user();
         $this->http = $DIC->http();
+        $this->ui_factory = $DIC->ui()->factory();
+        $this->ui_renderer = $DIC->ui()->renderer();
+        $this->refinery = $DIC->refinery();
+
+        $this->ref_id = $DIC->http()->wrapper()->query()->retrieve("ref_id", $DIC->refinery()->kindlyTo()->int());
 
         $this->lng->loadLanguageModule('ecs');
         $this->initSettings();
@@ -120,11 +130,8 @@ class ilECSSettingsGUI
         }
 
         $servers = ilECSServerSettings::getInstance();
-
-        $table = new ilECSServerTableGUI($this, 'overview');
-        $table->initTable();
-        $table->parse($servers);
-        $this->tpl->setContent($table->getHTML());
+        $table = new ilECSServerTableGUI($this, $servers, $this->access->checkAccess('write', '', $this->ref_id));
+        $this->tpl->setContent($table->renderList());
     }
 
     /**
@@ -297,7 +304,7 @@ class ilECSSettingsGUI
         $this->form->addItem($server_title);
 
         $ser = new ilTextInputGUI($this->lng->txt('ecs_server_url'), 'server');
-        $ser->setValue((string) $this->settings->getServer());
+        $ser->setValue($this->settings->getServer());
         $ser->setRequired(true);
         $this->form->addItem($ser);
 
@@ -327,26 +334,26 @@ class ilECSSettingsGUI
 
         $cli = new ilTextInputGUI($this->lng->txt('ecs_client_cert'), 'client_cert');
         $cli->setSize(60);
-        $cli->setValue((string) $this->settings->getClientCertPath());
+        $cli->setValue($this->settings->getClientCertPath());
         $cli->setRequired(true);
         $cert_based->addSubItem($cli);
 
         $key = new ilTextInputGUI($this->lng->txt('ecs_cert_key'), 'key_path');
         $key->setSize(60);
-        $key->setValue((string) $this->settings->getKeyPath());
+        $key->setValue($this->settings->getKeyPath());
         $key->setRequired(true);
         $cert_based->addSubItem($key);
 
         $cerp = new ilTextInputGUI($this->lng->txt('ecs_key_password'), 'key_password');
         $cerp->setSize(12);
-        $cerp->setValue((string) $this->settings->getKeyPassword());
+        $cerp->setValue($this->settings->getKeyPassword());
         $cerp->setInputType('password');
         $cerp->setRequired(true);
         $cert_based->addSubItem($cerp);
 
         $cer = new ilTextInputGUI($this->lng->txt('ecs_ca_cert'), 'ca_cert');
         $cer->setSize(60);
-        $cer->setValue((string) $this->settings->getCACertPath());
+        $cer->setValue($this->settings->getCACertPath());
         $cer->setRequired(true);
         $cert_based->addSubItem($cer);
 
@@ -555,6 +562,10 @@ class ilECSSettingsGUI
                         $this->log->notice('Deleting deprecated participant: ' . $server->getServerId() . ' ' . $mid);
                         $part = new ilECSParticipantSetting($server->getServerId(), $mid);
                         $part->delete();
+                    } else {
+                        $part = new ilECSParticipantSetting($server->getServerId(), $mid);
+                        $part->setTitle($creader->getParticipantNameByMid($mid));
+                        $part->update();
                     }
                 }
             } catch (ilECSConnectorException $e) {
@@ -570,13 +581,6 @@ class ilECSSettingsGUI
      */
     public function communities(): void
     {
-        $tpl = new \ilTemplate(
-            'tpl.ecs_communities.html',
-            true,
-            true,
-            'components/ILIAS/WebServices/ECS'
-        );
-
         // add toolbar to refresh communities
         if ($this->access->checkAccess('write', '', (int) $_REQUEST["ref_id"])) {
             $this->toolbar->addButton(
@@ -585,142 +589,13 @@ class ilECSSettingsGUI
             );
         }
 
-
         $this->tabs_gui->setSubTabActive('ecs_communities');
 
-        $tpl->setVariable('FORMACTION', $this->ctrl->getFormAction($this, 'updateCommunities'));
-
-        if ($this->access->checkAccess('write', '', (int) $_REQUEST["ref_id"])) {
-            $tpl->setCurrentBlock("submit_buttons");
-            $tpl->setVariable('TXT_SAVE', $this->lng->txt('save'));
-            $tpl->setVariable('TXT_CANCEL', $this->lng->txt('cancel'));
-            $tpl->parseCurrentBlock();
-        }
-
-        $settings = ilECSServerSettings::getInstance();
-
-        foreach ($settings->getServers(ilECSServerSettings::ALL_SERVER) as $server) {
-            // Try to read communities
-            try {
-                $reader = ilECSCommunityReader::getInstanceByServerId($server->getServerId());
-                foreach ($reader->getCommunities() as $community) {
-                    $tpl->setCurrentBlock('table_community');
-                    $table_gui = new ilECSCommunityTableGUI($server, $this, 'communities', $community->getId());
-                    $table_gui->setTitle($community->getTitle() . ' (' . $community->getDescription() . ')');
-                    $table_gui->parse($community->getParticipants());
-                    $tpl->setVariable('TABLE_COMM', $table_gui->getHTML());
-                    $tpl->parseCurrentBlock();
-                }
-            } catch (ilECSConnectorException $exc) {
-                // Maybe server is not fully configured
-                continue;
-            }
-
-            // Show section for each server
-            $tpl->setCurrentBlock('server');
-            $tpl->setVariable('TXT_SERVER_NAME', $server->getTitle());
-            $tpl->parseCurrentBlock();
-        }
-
-        $this->tpl->setContent($tpl->get());
+        $this->tpl->setContent((new ilECSCommunityTableGUI(
+            $this,
+            $this->access->checkAccess('write', '', $this->ref_id)
+        ))->render());
     }
-
-    /**
-     * Validate import types
-     * @param array $import_types
-     */
-    protected function validateImportTypes(array $import_types): array
-    {
-        $num_cms = 0;
-        foreach ((array) $import_types as $sid => $server) {
-            foreach ((array) $server as $mid => $import_type) {
-                if ((int) $import_type === ilECSParticipantSetting::IMPORT_CMS) {
-                    ++$num_cms;
-                }
-            }
-        }
-
-        if ($num_cms <= 1) {
-            return [];
-        }
-        // Change to import type "UNCHANGED"
-        $new_types = [];
-        foreach ((array) $import_types as $sid => $server) {
-            foreach ((array) $server as $mid => $import_type) {
-                if ((int) $import_type === ilECSParticipantSetting::IMPORT_CMS) {
-                    $new_types[$sid][$mid] = ilECSParticipantSetting::IMPORT_UNCHANGED;
-                } else {
-                    $new_types[$sid][$mid] = $import_type;
-                }
-            }
-        }
-        return $new_types;
-    }
-
-    /**
-     * update whitelist
-     */
-    protected function updateCommunities(): void
-    {
-        // @TODO: Delete deprecated communities
-        $validatedImportTypes = $this->validateImportTypes($_POST['import_type']);
-
-        $servers = ilECSServerSettings::getInstance();
-        foreach ($servers->getServers(ilECSServerSettings::ACTIVE_SERVER) as $server) {
-            try {
-                // Read communities
-                $cReader = ilECSCommunityReader::getInstanceByServerId($server->getServerId());
-
-                // Update community cache
-                foreach ($cReader->getCommunities() as $community) {
-                    $cCache = ilECSCommunityCache::getInstance($server->getServerId(), $community->getId());
-                    $cCache->setCommunityName($community->getTitle());
-                    $cCache->setMids($community->getMids());
-                    $cCache->setOwnId($community->getOwnId());
-                    $cCache->update();
-                }
-            } catch (Exception $e) {
-                $this->log->error('Cannot read ecs communities: ' . $e->getMessage());
-            }
-        }
-        foreach ((array) $_POST['sci_mid'] as $sid => $mids) {
-            $this->log->info("server id is " . print_r($sid, true));
-            foreach ((array) $mids as $mid => $value) {
-                $set = new ilECSParticipantSetting($sid, $mid);
-                #$set->enableExport(array_key_exists($mid, (array) $_POST['export'][$sid]) ? true : false);
-                #$set->enableImport(array_key_exists($mid, (array) $_POST['import'][$sid]) ? true : false);
-                if ($validatedImportTypes) {
-                    $set->setImportType((int) $validatedImportTypes[$sid][$mid]);
-                } else {
-                    $set->setImportType((int) $_POST['import_type'][$sid][$mid]);
-                }
-
-                // update title/cname
-                try {
-                    $part = ilECSCommunityReader::getInstanceByServerId($sid)->getParticipantByMID($mid);
-                    if ($part instanceof ilECSParticipant) {
-                        $set->setTitle($part->getParticipantName());
-                    }
-                    $com = ilECSCommunityReader::getInstanceByServerId($sid)->getCommunityByMID($mid);
-                    if ($com instanceof ilECSCommunity) {
-                        $set->setCommunityName($com->getTitle());
-                    }
-                } catch (Exception $e) {
-                    $this->log->error('Cannot read ecs communities: ' . $e->getMessage());
-                }
-
-                $set->update();
-            }
-        }
-        if ($validatedImportTypes) {
-            $this->tpl->setOnScreenMessage('failure', $this->lng->txt('ecs_invalid_import_type_cms'), true);
-        } else {
-            $this->tpl->setOnScreenMessage('success', $this->lng->txt('settings_saved'), true);
-        }
-        $this->ctrl->redirect($this, 'communities');
-        // TODO: Do update of remote courses and ...
-    }
-
 
     /**
      * Handle tabs for ECS data mapping
@@ -988,16 +863,8 @@ class ilECSSettingsGUI
     protected function categoryMapping(): void
     {
         $this->tabs_gui->setSubTabActive('ecs_category_mapping');
-        $this->tpl->addBlockFile('ADM_CONTENT', 'adm_content', 'tpl.category_mapping.html', 'components/ILIAS/WebServices/ECS');
-
-        $this->initRule();
-        $this->initCategoryMappingForm();
-
-
-        $this->tpl->setVariable('NEW_RULE_TABLE', $this->form->getHTML());
-        if ($html = $this->showRulesTable()) {
-            $this->tpl->setVariable('RULES_TABLE', $html);
-        }
+        $this->toolbar->addButton($this->lng->txt('add new category'), $this->ctrl->getLinkTarget($this, 'showNewCategoryMapping'));
+        $this->tpl->setContent($this->showRulesTable());
     }
 
     /**
@@ -1056,15 +923,22 @@ class ilECSSettingsGUI
      */
     protected function editCategoryMapping(): bool
     {
-        if (!$_REQUEST['rule_id']) {
+        $mapping_ids = [];
+        if ($this->http->wrapper()->query()->has('ecs_categorie_mapping_mapping_ids')) {
+            $mapping_ids = $this->http->wrapper()->query()->retrieve(
+                'ecs_categorie_mapping_mapping_ids',
+                $this->refinery->kindlyTo()->listOf($this->refinery->kindlyTo()->int())
+            );
+        }
+        if (count($mapping_ids) !== 1) {
             $this->tpl->setOnScreenMessage('info', $this->lng->txt('select_one'));
             $this->categoryMapping();
             return false;
         }
 
         $this->tabs_gui->setSubTabActive('ecs_category_mapping');
-        $this->ctrl->saveParameter($this, 'rule_id');
-        $this->initRule((int) $_REQUEST['rule_id']);
+        $this->ctrl->setParameter($this, 'rule_id', $mapping_ids[0]);
+        $this->initRule($mapping_ids[0]);
 
         $this->initCategoryMappingForm('edit');
         $this->tpl->setContent($this->form->getHTML());
@@ -1151,9 +1025,15 @@ class ilECSSettingsGUI
      */
     protected function showRulesTable(): string
     {
-        $rule_table = new ilECSCategoryMappingTableGUI($this, 'categoryMapping');
-        $rule_table->parse(ilECSCategoryMapping::getActiveRules());
-        return $rule_table->getHTML();
+        $rule_table = new ilECSCategoryMappingTableGUI($this, 'categoryMapping', ilECSCategoryMapping::getActiveRules());
+        return $rule_table->render();
+    }
+
+    protected function showNewCategoryMapping(): void
+    {
+        $this->initRule();
+        $this->initCategoryMappingForm('add');
+        $this->tpl->setContent($this->form->getHTML());
     }
 
     /**
@@ -1557,9 +1437,9 @@ class ilECSSettingsGUI
 
     /**
      * get options for field selection
-     * @param array array of field objects
+     * @param array $fields array of field objects
      */
-    protected function prepareFieldSelection($fields): array
+    protected function prepareFieldSelection(array $fields): array
     {
         $options[0] = $this->lng->txt('ecs_ignore_field');
         foreach ($fields as $field) {
